@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Sistema operativo del EC2 (Node Exporter).
+  - job_name: 'ec2-node'
+    static_configs:
+      - targets: ['16.58.217.207:19100']
+
+  # Contenedores Docker del EC2 (cAdvisor).
+  - job_name: 'ec2-docker'
+    static_configs:
+      - targets: ['16.58.217.207:18080']
+
+  # Microservicio de Mantenimiento: puerto de gestion del Actuator (formato Prometheus).
+  # Incluye API (http_server_requests), JVM, pool de conexiones (hikaricp_*),
+  # Circuit Breaker hacia Vehiculos (resilience4j_*) y estado de salud (app_health_status).
+  - job_name: 'maintenance-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['16.58.217.207:18001']

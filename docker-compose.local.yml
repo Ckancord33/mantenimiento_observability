@@ -1,0 +1,88 @@
+# Modo local: levanta TODO en tu maquina con un solo comando, sin tocar el EC2 ni la base real.
+#
+#   docker compose -f docker-compose.local.yml up -d --build
+#
+# - Microservicio de Mantenimiento (desde ../grupo_03_mantenimiento) con PostgreSQL local.
+# - Mock de MS Vehiculos (WireMock) para ver el componente "vehicles" UP y poder apagarlo.
+# - Loki + Alloy (el mismo stack de ec2/) recolectando los logs de los contenedores.
+# - Prometheus y Grafana leyendo todo por la red interna de Docker.
+#
+# Grafana: http://localhost:13000 (sin login, abre directo el dashboard).
+name: fleetops-local
+
+include:
+  # Mismo stack de logs que corre en el EC2.
+  - path: ./ec2/docker-compose.yml
+
+services:
+  maintenance:
+    # Reutiliza la definicion de produccion del servicio (puertos, logs JSON, mem_limit).
+    extends:
+      file: ../grupo_03_mantenimiento/docker-compose.prod.yml
+      service: maintenance
+    image: fleetops/maintenance:local
+    # No carga el .env del servicio: en local no se usan credenciales reales.
+    env_file: !reset []
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fleetops_maintenance
+      SPRING_DATASOURCE_USERNAME: fleetops
+      SPRING_DATASOURCE_PASSWORD: fleetops
+      AWS_SNS_ENABLED: "false"
+      AWS_SQS_ENABLED: "false"
+      VEHICLES_SERVICE_URL: http://vehicles-mock:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vehicles-mock:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fleetops_maintenance
+      POSTGRES_USER: fleetops
+      POSTGRES_PASSWORD: fleetops
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleetops -d fleetops_maintenance"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Simula GET /vehicles de MS Vehiculos. Apagalo para ver "vehicles" en DOWN.
+  vehicles-mock:
+    image: wiremock/wiremock:3.13.1
+    command: ["--global-response-templating", "--disable-banner"]
+    volumes:
+      - ./local/wiremock/mappings:/home/wiremock/mappings:ro
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "13000:3000"
+    environment:
+      # Solo para local: entra sin login como administrador y abre el dashboard.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fleetops-maintenance.json
+    volumes:
+      - ./local/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/provisioning/plugins:/etc/grafana/provisioning/plugins:ro
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+
+volumes:
+  postgres-data:

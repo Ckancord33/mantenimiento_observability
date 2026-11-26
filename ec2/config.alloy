@@ -1,0 +1,62 @@
+// Descubre los contenedores Docker del EC2.
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+
+// Etiquetas de baja cardinalidad: contenedor, servicio y proyecto de Docker Compose.
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+}
+
+// Lee los logs de todos los contenedores descubiertos.
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.maintenance.receiver]
+}
+
+// El microservicio de Mantenimiento escribe JSON en formato ECS: se extrae el nivel como etiqueta
+// para filtrar rapido por ERROR/WARN. El resto de campos se consulta con "| json" en Grafana.
+loki.process "maintenance" {
+  stage.match {
+    selector = "{service=\"maintenance\"}"
+
+    stage.json {
+      expressions = {
+        level = "\"log.level\"",
+      }
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

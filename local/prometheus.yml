@@ -1,0 +1,20 @@
+# Prometheus del modo local: lee el servicio por la red interna de Docker.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Microservicio local: API, JVM, pool de conexiones, Circuit Breaker y app_health_status.
+  - job_name: 'maintenance-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['maintenance:18001']
+
+  # Exportadores locales (los mismos de ec2/). Se mantienen los nombres de job del EC2
+  # para que el dashboard funcione igual: aqui muestran tu maquina y tus contenedores.
+  - job_name: 'ec2-node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'ec2-docker'
+    static_configs:
+      - targets: ['cadvisor:8080']

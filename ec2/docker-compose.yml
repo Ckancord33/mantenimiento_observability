@@ -1,0 +1,78 @@
+# Stack de monitoreo que corre EN el EC2, junto al microservicio.
+# - Node Exporter (19100): metricas del sistema operativo.
+# - cAdvisor (18080): metricas de cada contenedor Docker.
+# - Loki (13100) + Alloy: Alloy lee los logs de los contenedores y los envia a Loki.
+# Prometheus y Grafana (en tu maquina local) consultan estos puertos.
+#
+# Uso en el EC2:  docker compose up -d
+# Security Group: abrir 19100, 18080 y 13100/tcp SOLO para tu IP (ninguno tiene autenticacion).
+services:
+  node-exporter:
+    image: prom/node-exporter
+    container_name: node-exporter
+    # Nombre fijo: si no, reporta el ID aleatorio del contenedor como "nodename" y cada vez que se
+    # recrea aparece como un servidor nuevo en el dashboard Node Exporter Full.
+    hostname: fleetops-ec2
+    restart: unless-stopped
+    ports:
+      - "19100:9100"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run:/var/run:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker:/var/lib/docker:ro"
+
+  loki:
+    image: grafana/loki:3.7.10
+    container_name: loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    ports:
+      - "13100:3100"
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    # Limite pensado para un EC2 de 2 GB que comparte memoria con la JVM del servicio.
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  alloy:
+    image: grafana/alloy:v1.22.0
+    container_name: alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    # Leer el socket de Docker requiere root dentro del contenedor. Montar el socket ya da
+    # acceso total a Docker, asi que root no agrega exposicion extra; el socket va en solo lectura.
+    user: "0:0"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Guarda la posicion de lectura para no reenviar logs tras un reinicio.
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - loki
+    mem_limit: 192m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  loki-data:
+  alloy-data:

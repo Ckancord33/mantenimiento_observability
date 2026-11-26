@@ -1,0 +1,13 @@
+{
+  "mappings": [
+    {
+      "name": "Listado paginado de vehiculos (sonda de health y scheduler)",
+      "request": { "method": "GET", "urlPath": "/vehicles" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": { "content": [], "page": 0, "size": 1, "total": 0 }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  # Loki corre en el EC2; el Security Group debe permitir 13100 solo desde tu IP.
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://16.58.217.207:13100
